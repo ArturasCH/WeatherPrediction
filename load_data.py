@@ -14,11 +14,11 @@ warnings.filterwarnings('ignore')
 
 
 def get_data():
-    geopotential = xr.open_mfdataset('./data/all_5.625deg/geopotential/geopotential_*.nc')
-    temperature = xr.open_mfdataset('./data/all_5.625deg/temperature/temperature_*.nc')
-    specific_humidity = xr.open_mfdataset('./data/all_5.625deg/specific_humidity/specific_humidity_*.nc')
-    u_wind = xr.open_mfdataset('./data/all_5.625deg/u_component_of_wind/u_component_of_wind_*.nc')
-    v_wind = xr.open_mfdataset('./data/all_5.625deg/v_component_of_wind/v_component_of_wind_*.nc')
+    # geopotential = xr.open_mfdataset('./data/all_5.625deg/geopotential/geopotential_*.nc', engine="h5netcdf")
+    # temperature = xr.open_mfdataset('./data/all_5.625deg/temperature/temperature_*.nc', engine="h5netcdf")
+    # specific_humidity = xr.open_mfdataset('./data/all_5.625deg/specific_humidity/specific_humidity_*.nc', engine="h5netcdf")
+    # u_wind = xr.open_mfdataset('./data/all_5.625deg/u_component_of_wind/u_component_of_wind_*.nc', engine="h5netcdf")
+    # v_wind = xr.open_mfdataset('./data/all_5.625deg/v_component_of_wind/v_component_of_wind_*.nc', engine="h5netcdf")
 
 # geopotential_500 = xr.open_mfdataset('./data/all_5.625deg/geopotential_500/geopotential_*.nc', chunks=chunks) #single level, vs 13 levels
 # vorticity_potential = xr.open_mfdataset('./data/all_5.625deg/potential_vorticity/potential_vorticity_*.nc')
@@ -32,25 +32,26 @@ def get_data():
 # precipitation_total = xr.open_mfdataset('./data/all_5.625deg/total_precipitation/total_precipitation_*.nc')
 
 
-    data = xr.merge([
-        # temperature_2m,
-        # u_wind_10m,
-        # v_wind_10m,
-        geopotential,
-        temperature,
-        specific_humidity,
-        u_wind,
-        v_wind,
-        # geopotential_500,
-        # vorticity_potential,
-        # vorticity,
-        # relative_humidity,
+    # data = xr.merge([
+    #     # temperature_2m,
+    #     # u_wind_10m,
+    #     # v_wind_10m,
+    #     geopotential,
+    #     temperature,
+    #     specific_humidity,
+    #     u_wind,
+    #     v_wind,
+    #     # geopotential_500,
+    #     # vorticity_potential,
+    #     # vorticity,
+    #     # relative_humidity,
     
         
-        # temperature_850,
-        # solar_radiation,
-        # cloud_cover,
-        # precipitation_total,
+    #     # temperature_850,
+    #     # solar_radiation,
+    #     # cloud_cover,
+    #     # precipitation_total,
 
-        ])
+    #     ])
+    data = xr.open_dataset('./data/resampled/3h_backfilled_resampling.nc', engine="h5netcdf", chunks={'time': 112})
     return data

@@ -6,15 +6,27 @@ import torch
 from models.DenseDCRNNToDiffConv import DenseDCRNNThenDiffConvModel
 from models.TimeThenSpace import TimeThenSpaceModel
 from models.TemporalSpikeGraphConvNet import TemporalSpikeGraphConvNet
+from models.TemporalSynapticGraphConvNet import TemporalSynapticGraphConvNet
+from models.TeporalSynapticLeanableWeights import TemporalSynapticLearnableWeights
+
+from models.SynapticGCN import SynapticGCN
+from models.MultistepPredictor import MultistepPredictor
+from models.SynapticAttention import SynapticAttention
+from metrics.weighted_rmse import WeightedRMSE
+from metrics.metric_utils import WeatherVariable
+
 from tsl.nn.models import TransformerModel, GraphWaveNetModel
 from tsl.metrics.torch import MaskedMAE, MaskedMAPE, MaskedMSE
 from tsl.engines import Predictor
 from lightning.pytorch.loggers import TensorBoardLogger
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from DataLoader import WeatherDL
-import os
+import warnings
 import pickle
+warnings.filterwarnings('ignore')
+
 
 # os.environ['OMP_NUM_THREADS'] = '1'
 # os.environ['MKL_NUM_THREADS'] = '1'
@@ -32,30 +44,45 @@ def train():
     # train_loader = WeatherDataLoader(data, time=slice('2000', '2002'), temporal_resolution=3)
     # min, max = train_loader.getMinMaxValues()
     # validation_loader = WeatherDataLoader(data, time='2003', temporal_resolution=3, min=min, max=max)
-    min_max = pickle.load(open('./min_max_test.pkl', 'rb'))
+    # min_max = pickle.load(open('./min_max_test.pkl', 'rb'))
+    min_max = pickle.load(open('./min_max_train_full.pkl', 'rb'))
+    
+    # min_max = pickle.load(open('./min_max_global.pkl', 'rb'))
+    batch_size = 1
+    num_workers = 10
+    prefetch_factor = 1
+    persistent_workers=False
+    pin_memory = False
     train = WeatherDL(
         data,
-        time=slice('2000', '2002'),
+        time=slice('1992', '2003'),
         temporal_resolution=3,
         min=min_max['min'],
         max=min_max['max'],
-        batch_size=5,
-        num_workers=8,
-        # persistent_workers=True,
-        prefetch_factor=4,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        # window=84,
+        persistent_workers=persistent_workers,
+        prefetch_factor=prefetch_factor,
+        pin_memory=pin_memory,
+        shuffle=True
         # multiprocessing_context='fork'
         )
     # min, max = train.data_wrapper.getMinMaxValues()
     valid = WeatherDL(
         data,
-        time='2003',
+        time='2004',
         temporal_resolution=3,
+        # horizon=8,
         min=min_max['min'],
         max=min_max['max'],
-        batch_size=5,
-        num_workers=8,
-        # persistent_workers=True,
-        prefetch_factor=4,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        # window=84,
+        persistent_workers=persistent_workers,
+        prefetch_factor=prefetch_factor,
+        pin_memory=pin_memory,
+        shuffle=True
         # multiprocessing_context='fork'
         )
 
@@ -114,7 +141,7 @@ def train():
     horizon = train.spatio_temporal_dataset.horizon         # n prediction time steps
 
 
-    hidden_size = 32   #@param
+    hidden_size = 256   #@param
     rnn_layers = 1     #@param
     gnn_kernel = 2     #@param
 
@@ -149,23 +176,85 @@ def train():
     #     input_size=input_size,
     #     output_size=input_size,
     #     horizon=horizon,
-    #     n_nodes=n_nodes)
+    #     n_nodes=n_nodes,
+    #     hidden_size=hidden_size // 2
+    #     )
     
-    model = TemporalSpikeGraphConvNet(input_size=input_size,
-                               n_nodes=n_nodes,
-                               horizon=horizon,
-                               hidden_size=hidden_size * 8,
-                               use_spike_for_output=True
-                               )
+    # model = TemporalSpikeGraphConvNet(
+    #                            input_size=input_size,
+    #                            n_nodes=n_nodes,
+    #                            horizon=horizon,
+    #                            hidden_size=hidden_size * 8,
+    #                            use_spike_for_output=True
+    #                            )
+    output_type = "membrane_potential"
+    # val_weighted RMSE=0.163, val_weighted RMSE T850=0.150, val_weighted RMSE T850 at day 3=0.178, val_weighted RMSE Z500=0.177, val_weighted RMSE Z500 at day 3=0.169, train_weighted RMSE=0.203, train_weighted RMSE T850=0.213, train_weighted RMSE T850 at day 3
+    # model = TemporalSynapticGraphConvNet(
+    #     input_size=input_size,
+    #     n_nodes=n_nodes,
+    #     horizon=horizon,
+    #     hidden_size=128,
+    #     # horizon=8,5
+    #     output_type=output_type,
+    #     number_of_blocks=8,
+    #     number_of_temporal_steps=3
+    # )
+    
+    # val_weighted RMSE=0.173, val_weighted RMSE T850=0.155, val_weighted RMSE T850 at day 3=0.150, val_weighted RMSE Z500=0.191, val_weighted RMSE Z500 at day 3=0.177, train_weighted RMSE=0.219, train_weighted RMSE T850=0.243, train_weighted RMSE T850 at day 3
+    model = TemporalSynapticLearnableWeights(
+        input_size=input_size,
+        n_nodes=n_nodes,
+        horizon=horizon,
+        # horizon=8,5
+        hidden_size=128,
+        output_type=output_type,
+        number_of_blocks=3,
+        number_of_temporal_steps=3
+    )
+    
+    # model = SynapticAttention(
+    #     input_size=input_size,
+    #     n_nodes=n_nodes,
+    #     horizon=horizon,
+    #     hidden_size=hidden_size,
+    #     number_of_blocks=3
+    # )
+    # model = SynapticGCN(
+    #    input_size=input_size,
+    #     n_nodes=n_nodes,
+    #     horizon=horizon,
+    #     hidden_size=hidden_size * 5,
+    #     output_type="spike",
+    #     number_of_blocks=3,
+    #     prediction_horizon=8
+    # )
 
-    loss_fn = MaskedMSE()
+    # loss_fn = MaskedMSE()
     steps_per_day = 24 // 3
-    metrics = {'mse': MaskedMSE(),
-            #    'mape': MaskedMAPE(),
-            'mse_at_3_days': MaskedMSE(at=(steps_per_day * 3) - 1),  # 'steps_per_day * 3' indicates the 24th time step,
-                                            # which correspond to 3 days ahead
-            'mse_at_5_days': MaskedMSE(at=(steps_per_day * 5) - 1)}
+    # metrics = {'mse': MaskedMSE(),
+    #         #    'mape': MaskedMAPE(),
+    #         'mse_at_3_days': MaskedMSE(at=(steps_per_day * 3) - 1),  # 'steps_per_day * 3' indicates the 24th time step,
+    #                                         # which correspond to 3 days ahead
+    #         'mse_at_5_days': MaskedMSE(at=(steps_per_day * 5) - 1)
+    #         }
 
+    variables = [
+        WeatherVariable('z', 500),
+        WeatherVariable('t', 850)
+        ]
+    weights = train.data_wrapper.node_weights
+    loss_fn = WeightedRMSE(weights, variables=variables)
+    metrics = {
+        'weighted RMSE': WeightedRMSE(weights, variables=variables),
+        'weighted RMSE Z500': WeightedRMSE(weights, variables=[WeatherVariable('z', 500)]),
+        'weighted RMSE T850': WeightedRMSE(weights, variables=[WeatherVariable('t', 850)]),
+        'weighted RMSE Z500 at day 3': WeightedRMSE(weights, variables=[WeatherVariable('z', 500)], at=(steps_per_day * 3) - 1),
+        'weighted RMSE T850 at day 3': WeightedRMSE(weights, variables=[WeatherVariable('t', 850)], at=(steps_per_day * 3) - 1),
+        'weighted RMSE Z500 at day 3': WeightedRMSE(weights, variables=[WeatherVariable('z', 500)], at=(steps_per_day * 3) - 1),
+        'weighted RMSE T850 at day 3': WeightedRMSE(weights, variables=[WeatherVariable('t', 850)], at=(steps_per_day * 3) - 1),
+        'weighted RMSE Z500 at day 5': WeightedRMSE(weights, variables=[WeatherVariable('z', 500)], at=(steps_per_day * 5) - 1),
+        'weighted RMSE T850 at day 5': WeightedRMSE(weights, variables=[WeatherVariable('t', 850)], at=(steps_per_day * 5) - 1),
+    }
     # loss_fn = MaskedRMSE()
     # steps_per_day = 24 // 3
     # metrics = {'rmse': MaskedRMSE(),
@@ -176,39 +265,52 @@ def train():
 
     # setup predictor
     # stgnn = stgnn.to(torch.device(device))
+    # compiled_model = torch.compile(model, mode='reduce-overhead')
     predictor = Predictor(
         model=model,                   # our initialized model
+        # model=compiled_model,
         optim_class=torch.optim.Adam,  # specify optimizer to be used...
         optim_kwargs={'lr': 0.001},    # ...and parameters for its initialization
         loss_fn=loss_fn,               # which loss function to be used
         metrics=metrics                # metrics to be logged during train/val/test
     )
+    # predictor._set_multistep_attrs(8, horizon)
 
     print(device,model, torch.cuda.device_count(), model._get_name())
 
 
-    logger = TensorBoardLogger(save_dir="logs", name=f"{model._get_name()}_spike_output_rsynaptic_conv_256hidden_mse_epochs_full", version=0,)
+    logger = TensorBoardLogger(save_dir=f"logs/{model._get_name()}", name=f"Weighted RMSE: Full sequence/validation shuffled: {model._get_name()} output=[{output_type}] hidden layer size = [{hidden_size//2}]", version=6,)
 
 
     checkpoint_callback = ModelCheckpoint(
         dirpath='logs',
         save_top_k=1,
-        monitor='val_mse',
+        monitor='val_weighted RMSE',
         mode='min',
     )
+    
+    early_stopping = EarlyStopping(monitor='val_weighted RMSE', mode='min', min_delta=1e-5,patience=3, check_on_train_epoch_end=True)
+    
+    # compiled_predictor = torch.compile(predictor, mode='reduce-overhead')
 
     trainer = pl.Trainer(max_epochs=2,
                         logger=logger,
                         #  gpus=1 if torch.cuda.is_available() else None,
                         devices=1,
                         accelerator='gpu',
-                        #  limit_train_batches=50,
-                        limit_val_batches=50,
-                        callbacks=checkpoint_callback, num_sanity_val_steps=0)
+                        #  limit_train_batches=150,
+                        # limit_val_batches=50,
+                        callbacks=[checkpoint_callback, early_stopping],
+                        accumulate_grad_batches=32,
+                        val_check_interval=320,
+                        limit_val_batches=0.25
+                        # num_sanity_val_steps=1,
+                        )
 
     trainer.fit(predictor, train_dataloaders=train.data_loader, val_dataloaders=valid.data_loader)
     
 
 if __name__ == '__main__':
     torch.set_float32_matmul_precision('medium')
+    pl.seed_everything(seed=15)
     train()

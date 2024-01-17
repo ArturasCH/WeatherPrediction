@@ -60,7 +60,8 @@ def take(x: Union[np.ndarray, torch.Tensor, xr.core.dataarray.DataArray],
             # print('load time indexted x', x[time_index])
             if isinstance(x, xr.core.dataarray.DataArray):
                 time_index = xr.DataArray(time_index)
-            x = torch.Tensor(x[time_index].bfill(dim='dim_0').load().data)
+            # print('time_index', torch.tensor(x[time_index].bfill(dim='dim_1').load().data))
+            x = torch.Tensor(x[time_index].bfill(dim='dim_1').load().data.copy())
 
     # broadcast array/tensor to pattern according to backend
     for pos, dim in list(enumerate(dims))[pad_dim:]:
