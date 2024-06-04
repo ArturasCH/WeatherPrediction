@@ -36,8 +36,8 @@ def get_data():
     #     # temperature_2m,
     #     # u_wind_10m,
     #     # v_wind_10m,
-    #     geopotential,
-    #     temperature,
+        # geopotential,
+        # temperature,
     #     specific_humidity,
     #     u_wind,
     #     v_wind,
@@ -52,6 +52,6 @@ def get_data():
     #     # cloud_cover,
     #     # precipitation_total,
 
-    #     ])
+        # ])
     data = xr.open_dataset('./data/resampled/3h_backfilled_resampling.nc', engine="h5netcdf", chunks={'time': 112})
     return data

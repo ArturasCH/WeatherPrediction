@@ -3,7 +3,8 @@ import torch.nn as nn
 from torch.nn import functional as F
 from torch.utils.checkpoint import checkpoint
 from tsl.nn.layers import NodeEmbedding, DenseGraphConvOrderK, DiffConv, Norm
-from tsl.nn.blocks.decoders import MLPDecoder
+from tsl.nn.blocks.decoders import MLPDecoder, MultiHorizonMLPDecoder
+from tsl.nn.layers.base import TemporalSelfAttention
 from tsl.nn.blocks.encoders.mlp import MLP
 from einops.layers.torch import Rearrange
 from snntorch import utils
@@ -32,24 +33,20 @@ class TemporalSynapticLearnableWeights(nn.Module):
                  learnable_feature_size = 64,
                  number_of_blocks = 2,
                  number_of_temporal_steps = 3,
-                 dropout: float = 0.3,
-                 edge_index=None,
-                 edge_weights = None
+                #  dropout: float = 0.3,
                  ) -> None:
         super(TemporalSynapticLearnableWeights, self).__init__()
-        self.edge_index = edge_index
-        self.edge_weight = edge_weights
 
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.output_type = output_type
         
         self.encoder = nn.Linear(in_features=input_size, out_features=hidden_size)
-        self.node_embeddings = NodeEmbedding(n_nodes=n_nodes, emb_size=hidden_size)
-        self.dropout = nn.Dropout(dropout)
+        # self.node_embeddings = NodeEmbedding(n_nodes=n_nodes, emb_size=hidden_size)
+        # self.dropout = nn.Dropout(dropout)
         
-        assert n_nodes is not None
-        self.source_embeddings = NodeEmbedding(n_nodes=n_nodes, emb_size=hidden_size)
-        self.target_embeddings = NodeEmbedding(n_nodes=n_nodes, emb_size=hidden_size)
+        # assert n_nodes is not None
+        # self.source_embeddings = NodeEmbedding(n_nodes=n_nodes, emb_size=hidden_size)
+        # self.target_embeddings = NodeEmbedding(n_nodes=n_nodes, emb_size=hidden_size)
         
         is_last = False
         # lw = []
@@ -112,36 +109,39 @@ class TemporalSynapticLearnableWeights(nn.Module):
         dense_sconvs = []
         skip_connections = []
         learnable_weights = []
+        edge_mlps = []
         norms = []
+        print(f'number of blocks {number_of_blocks}')
         for i in range(number_of_blocks):
             # is_last = i == number_of_blocks - 1
             is_last = False
             learnable = LearnableWeight(n_nodes=n_nodes, learnable_weight_dim=learnable_feature_size)
             new_hidden_size =hidden_size + ((i + 1) * learnable_feature_size) 
-            time_nn = SynapticChain(
-                hidden_size=new_hidden_size,
-                return_last=is_last,
-                output_type=output_type,
-                n_layers=number_of_temporal_steps,
-                )
+            # time_nn = SynapticChain(
+            #     hidden_size=new_hidden_size,
+            #     return_last=is_last,
+            #     output_type=output_type,
+            #     n_layers=number_of_temporal_steps,
+            #     )
+            time_nn = TemporalSelfAttention(new_hidden_size, 8, dropout=0.3)
             space_nn = DiffConv(
                             # in_channels=hidden_size * ((3-1)**2),
                             in_channels=new_hidden_size,
                             out_channels=new_hidden_size,
                             k=gnn_kernel)
-            dense_sconvs.append(
-                    DenseGraphConvOrderK(input_size=new_hidden_size,
-                                         output_size=new_hidden_size,
-                                         support_len=1,
-                                         order=2, # spatial kernel size
-                                         include_self=False,
-                                         channel_last=True))
+            # dense_sconvs.append(
+            #         DenseGraphConvOrderK(input_size=new_hidden_size,
+            #                              output_size=new_hidden_size,
+            #                              support_len=1,
+            #                              order=2, # spatial kernel size
+            #                              include_self=False,
+            #                              channel_last=True))
             learnable_weights.append(learnable)
+            edge_mlps.append(MLP(1, 32, 1))
             skip_connections.append(nn.Linear(new_hidden_size, ff_size))
             temporal.append(time_nn)
             spatial.append(space_nn)
-            norms.append(Norm('batch', new_hidden_size))
-        
+            norms.append(Norm('layer', new_hidden_size))
         # self.time_nn = SynapticChain(
         #     hidden_size=hidden_size,
         #     return_last=False,
@@ -158,7 +158,8 @@ class TemporalSynapticLearnableWeights(nn.Module):
         self.learnable = nn.ModuleList(learnable_weights)
         self.temporal = nn.ModuleList(temporal)
         self.spatial = nn.ModuleList(spatial)
-        self.dense_sconvs = nn.ModuleList(dense_sconvs)
+        self.edges = nn.ModuleList(edge_mlps)
+        # self.dense_sconvs = nn.ModuleList(dense_sconvs)
         self.skip_connections = nn.ModuleList(skip_connections)
         self.norms = nn.ModuleList(norms)
         # _____________________________________________________________________
@@ -166,21 +167,36 @@ class TemporalSynapticLearnableWeights(nn.Module):
         # self.decoder = nn.Linear(hidden_size, input_size * horizon)
         # self.rearrange = Rearrange('b n (t f) -> b t n f', t=horizon)
 
-        self.readout = nn.Sequential(
-            nn.ReLU(),
-            MLPDecoder(input_size=ff_size,
+        # self.readout = nn.Sequential(
+        #     nn.ReLU(),
+        #     MLPDecoder(input_size=ff_size,
+        #                hidden_size=2 * ff_size,
+        #             #    hidden_size=input_size * horizon,
+        #                output_size=input_size,
+        #                horizon=horizon,
+        #                activation='relu'))
+        
+        exog_size = 32
+        
+        self.learnable_exog = nn.Parameter(torch.Tensor(1, horizon, n_nodes, exog_size))
+        self.readout = MultiHorizonMLPDecoder(input_size=ff_size,
+                        exog_size=exog_size,
                        hidden_size=2 * ff_size,
+                       context_size=32,
+                    #    hidden_size=input_size * horizon,
+                        n_layers=2,
                        output_size=input_size,
                        horizon=horizon,
-                       activation='relu'))
+                       activation='relu',
+                       dropout=0.3)
 
-    def get_learned_adj(self):
-        logits = F.relu(self.source_embeddings() @ self.target_embeddings().T)
-        adj = torch.softmax(logits, dim=1)
-        return adj
+    # def get_learned_adj(self):
+    #     logits = F.relu(self.source_embeddings() @ self.target_embeddings().T)
+    #     adj = torch.softmax(logits, dim=1)
+    #     return adj
         
         
-    def forward(self, x):
+    def forward(self, x, edge_index, edge_weight):
         assert not torch.isnan(x).any()
         # x: [batch time nodes features]
         # utils.reset(self.temporal)
@@ -188,8 +204,8 @@ class TemporalSynapticLearnableWeights(nn.Module):
         # x_emb = x_enc + self.node_embeddings()  # add node-identifier embeddings
         out = torch.zeros(1, x.size(1), 1, 1, device=x.device)
     
-        x = self.encoder(x) + self.node_embeddings()
-        adj_z = self.get_learned_adj()
+        x = self.encoder(x)
+        # adj_z = self.get_learned_adj()
         # for p1, p2, p3, p4 in zip(self.phase1, self.phase2, self.phase3, self.phase4):
         #     resid = x
         #     utils.reset(p1)
@@ -203,36 +219,44 @@ class TemporalSynapticLearnableWeights(nn.Module):
         #     x = res[0]
         # learned_edge_index = adj_z.nonzero().t().contiguous()
         # ----------------------------------------------------------------------
-        for i, (add_features, time, space, skip_conn, norm) in enumerate(zip(
+        for i, (add_features, time, space, skip_conn, norm, edge) in enumerate(zip(
             self.learnable,
             self.temporal,
             self.spatial,
             self.skip_connections,
-            self.norms
+            self.norms,
+            self.edges
             )):
-            utils.reset(time)
+            # utils.reset(time)
             # x = checkpoint(add_features, x)
             x = add_features(x)
             
             res = x
+            x, _ = checkpoint(time, x)
+            x = checkpoint(norm, x)
             
-            # x = checkpoint(time, x)
-            x = time(x)
+            out = checkpoint(skip_conn, x) + out[:, -x.size(1):]
+            # x = time(x)
+            edge_weight = checkpoint(edge, edge_weight.expand(1,-1).T).squeeze()
             assert not torch.isnan(x).any()
-            # out = checkpoint(skip_conn, x) + out[:, -x.size(1):]
-            out = skip_conn(x) + out[:, -x.size(1):]
-            # xs = checkpoint(space, x, self.edge_index, self.edge_weight)
-            xs = space(x, self.edge_index, self.edge_weight)
+            # out = skip_conn(x) + out[:, -x.size(1):]
+            x = checkpoint(space, x, edge_index, edge_weight)
+            # xs = space(x, edge_index, edge_weight)
             # xs = space(x, learned_edge_index)
-            if len(self.dense_sconvs):
-                # x = xs + checkpoint(self.dense_sconvs[i], x, adj_z)
-                x = xs + self.dense_sconvs[i](x, adj_z)
+            # if len(self.dense_sconvs):
+            #     x = xs + checkpoint(self.dense_sconvs[i], x, adj_z)
+                # x = xs + self.dense_sconvs[i](x, adj_z)
             # residual connection -> next layer
             x = x + res[:, -x.size(1):]
-            x = norm(x)
+            # x = norm(x)
         # ----------------------------------------------------------------------
             
-        return self.readout(out)
+        # return self.readout(out)
+        # return checkpoint(self.readout, out)
+        # return checkpoint(self.readout, out, self.learnable_exog)
+        return self.readout(out, self.learnable_exog)
+        # assert not torch.isnan(res).any()
+        # return res
             
         # x_out = self.decoder(x_emb)  # linear decoder: z=[b n f] -> x_out=[b n t⋅f]
         # x_horizon = self.rearrange(x_out)

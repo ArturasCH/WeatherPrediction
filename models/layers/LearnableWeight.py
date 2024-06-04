@@ -1,10 +1,16 @@
 import torch
-from torch.nn import Module, Parameter
+import math
+from torch.nn import Module, Parameter, init
 
 class LearnableWeight(Module):
     def __init__(self, n_nodes: int, learnable_weight_dim: int) -> None:
         super(LearnableWeight, self).__init__()
-        self.weights = Parameter(torch.Tensor(n_nodes, learnable_weight_dim))
+        self.weights = Parameter(torch.empty(n_nodes, learnable_weight_dim))
+        
+        self.reset_parameters()
+        
+    def reset_parameters(self):
+        init.kaiming_uniform_(self.weights, a=math.sqrt(5))
         
     def forward(self, x):
         # batch, time, nodes, learnable_weights

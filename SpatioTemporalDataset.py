@@ -61,7 +61,11 @@ def take(x: Union[np.ndarray, torch.Tensor, xr.core.dataarray.DataArray],
             if isinstance(x, xr.core.dataarray.DataArray):
                 time_index = xr.DataArray(time_index)
             # print('time_index', torch.tensor(x[time_index].bfill(dim='dim_1').load().data))
-            x = torch.Tensor(x[time_index].bfill(dim='dim_1').load().data.copy())
+            if isinstance(x, Tensor):
+                x = x[time_index]
+            else:
+                # x = torch.Tensor(x[time_index].bfill(dim='dim_1').load().data.copy())
+                x = torch.Tensor(x[time_index].load().data.copy())
 
     # broadcast array/tensor to pattern according to backend
     for pos, dim in list(enumerate(dims))[pad_dim:]:
@@ -319,7 +323,8 @@ class SpatioTemporalDataset(Dataset, DataParsingMixin):
         if self.window > 0:
             wdw_idxs = self.get_window_indices(item)
             self._add_to_sample(sample, WINDOW, 'input', time_index=wdw_idxs)
-            self._add_to_sample(sample, WINDOW, 'target', time_index=wdw_idxs)
+            if self.horizon > 0:
+                self._add_to_sample(sample, WINDOW, 'target', time_index=wdw_idxs)
             self._add_to_sample(sample,
                                 WINDOW,
                                 'auxiliary',
@@ -328,12 +333,14 @@ class SpatioTemporalDataset(Dataset, DataParsingMixin):
         # get input synchronized with horizon
         hrz_idxs = self.get_horizon_indices(item)
         self._add_to_sample(sample, HORIZON, 'input', time_index=hrz_idxs)
-        self._add_to_sample(sample, HORIZON, 'target', time_index=hrz_idxs)
+        if self.horizon > 0:
+            self._add_to_sample(sample, HORIZON, 'target', time_index=hrz_idxs)
         self._add_to_sample(sample, HORIZON, 'auxiliary', time_index=hrz_idxs)
 
         # get static data
         self._add_to_sample(sample, STATIC, 'input')
-        self._add_to_sample(sample, STATIC, 'target')
+        if self.horizon > 0:
+            self._add_to_sample(sample, STATIC, 'target')
         self._add_to_sample(sample, STATIC, 'auxiliary')
 
         # get connectivity
@@ -955,6 +962,7 @@ class SpatioTemporalDataset(Dataset, DataParsingMixin):
         """
         # validate name. name cannot be an attribute of self, but allow override
         self._check_name(name)
+        print('pattern', pattern)
         value, pattern = self._parse_covariate(
             value, pattern, name=name, convert_precision=convert_precision)
         self._covariates[name] = dict(value=value, pattern=pattern)

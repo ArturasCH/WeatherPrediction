@@ -7,15 +7,25 @@ class WeatherVariable:
     level: int
 
 variable_set_idx = {v: k+1 for k,v in dict(enumerate(['z', 'q', 't', 'u', 'v'])).items()}
+# variable_set_idx = {v: k+1 for k,v in dict(enumerate(['z', 't', 'q', 'u', 'v'])).items()}
+# variable_set_idx = {v: k+1 for k,v in dict(enumerate(['t', 'q', 'u', 'v'])).items()}
+variable_set_idx_zt = {v: k+1 for k,v in dict(enumerate(['z', 't'])).items()}
 levels = [50,  100,  150,  200,  250,  300,  400,  500,  600,  700,  850,  925,
             1000]
+# levels = [850]
 level_idx = {v: k for k,v in dict(enumerate(levels)).items()}
 
 def select_variable(definition: WeatherVariable):
     level_skips = variable_set_idx[definition.variable]
     level_index = level_idx[definition.level]
     
-    return ((len(levels) - 1) * level_skips) + level_index
+    return ((len(levels)) * (level_skips - 1)) + level_index
+
+def select_variable_zt(definition: WeatherVariable):
+    level_skips = variable_set_idx_zt[definition.variable]
+    level_index = level_idx[definition.level]
+    
+    return ((len(levels)) * (level_skips - 1)) + level_index
     
 from collections import Counter
 
@@ -80,3 +90,6 @@ def weighted_mean(data, weights, dims=None):
 
 def _spatial_average_l2_norm(diff, weights):
     return torch.sqrt(weighted_mean(diff**2, weights, dims=['lat', 'lon']))
+
+def _spatial_average_l2_norm_no_sqrt(diff, weights):
+    return weighted_mean(diff**2, weights, dims=['lat', 'lon'])

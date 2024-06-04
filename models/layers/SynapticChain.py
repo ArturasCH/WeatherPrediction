@@ -11,13 +11,18 @@ class SynapticChain(nn.Module):
                  n_layers=3,
                  output_type: Literal["spike", "synaptic_current", "membrane_potential"] = "spike",
                  return_last=False,
-                 temporal_reduction_factor = 2
+                 temporal_reduction_factor = 2,
+                 dropout=0.3,
+                 output_size = None
                  ):
         super(SynapticChain, self).__init__()
+        # self.dropout = nn.Dropout(dropout)
         self.return_last = return_last
         self.output_type = output_type
         self.n_layers = n_layers
         self.temporal_reduction_factor = temporal_reduction_factor
+        self.skip_connection = nn.Linear(hidden_size, hidden_size)
+        output_size = output_size if output_size else hidden_size
         # synaptic = []
         # linear = []
         chain = []
@@ -30,6 +35,7 @@ class SynapticChain(nn.Module):
             # linear.append(nn.Linear(in_features=feature_size, out_features=feature_size))
             chain.append(self._build_synaptic_layer(hidden_size))
             chain.append(nn.Linear(in_features=hidden_size, out_features=hidden_size))
+            # chain.append(nn.Dropout(dropout))
             # chain.append(MLP(input_size=hidden_size, hidden_size=hidden_size*2, output_size=hidden_size, activation='prelu'))
         
         
@@ -43,7 +49,7 @@ class SynapticChain(nn.Module):
         self.chain = nn.Sequential(*chain)
         self.synaptic_out = self._build_synaptic_layer(hidden_size, output=True)
         self.linear_out = nn.Linear(in_features=hidden_size, out_features=hidden_size)
-        self.readout = MLP(input_size=hidden_size, hidden_size=hidden_size*2, output_size=hidden_size, activation='prelu')
+        self.readout = MLP(input_size=hidden_size, hidden_size=hidden_size*2, output_size=output_size, activation='prelu')
         
     def forward(self, x):
         b, t, n, f = x.size()
@@ -53,6 +59,7 @@ class SynapticChain(nn.Module):
             # output = torch.zeros((b, temporal_threshold, n, f), device=x.device)
             output = torch.zeros((b, t, n, f), device=x.device)
         
+        out = self.skip_connection(x)
         for timestep in range(t):
             timestep_data = x[:, timestep, :, :]
             spike = self.chain(timestep_data)
